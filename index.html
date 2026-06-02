@@ -426,6 +426,12 @@
     function buildCorsProxyUrl(url) {
       return `https://corsproxy.io/?${encodeURIComponent(url)}`;
     }
+    function buildTemplateProxyUrl(url, template = getFeedProxyTemplate()) {
+      if (!template) return '';
+      return template.includes('{{url}}')
+        ? template.replace('{{url}}', encodeURIComponent(url))
+        : `${template}?url=${encodeURIComponent(url)}`;
+    }
     function getScanDelayMs() {
       const minutes = Math.max(1, Number($('pollMinutesInput').value || 5) || 5);
       return minutes * 60 * 1000;
@@ -561,10 +567,8 @@
       const template = getFeedProxyTemplate();
       const googleCall = isGoogleCall(url);
       const targets = unique([
-        googleCall
-          ? buildCorsProxyUrl(url)
-          : (template.includes('{{url}}') ? template.replace('{{url}}', encodeURIComponent(url)) : ''),
-        url,
+        googleCall ? buildCorsProxyUrl(url) : buildTemplateProxyUrl(url, template),
+        googleCall ? '' : url,
       ]);
       let lastError = new Error('Failed to fetch feed from any available source');
       for (const target of targets) {
@@ -1063,8 +1067,7 @@
 
     function buildProxyUrl(url) {
       if (isGoogleCall(url)) return buildCorsProxyUrl(url);
-      const template = getFeedProxyTemplate();
-      return template.includes('{{url}}') ? template.replace('{{url}}', encodeURIComponent(url)) : `${template}?url=${encodeURIComponent(url)}`;
+      return buildTemplateProxyUrl(url);
     }
 
     function extractPreferredArticleLink(rawDescription) {
