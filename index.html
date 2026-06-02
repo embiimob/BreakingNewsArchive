@@ -343,6 +343,7 @@
     const MIN_PARAGRAPH_LENGTH = 60;
     const MAX_PARAGRAPHS_FOR_FALLBACK = 8;
     const MAX_TEXT_LENGTH_VARIANCE = 40;
+    const URL_DECODE_ATTEMPTS = 2;
     const LINK_PRIORITY_AP = 0;
     const LINK_PRIORITY_OTHER = 1;
     const LINK_PRIORITY_GOOGLE = 2;
@@ -444,7 +445,7 @@
           const value = norm(parsed.searchParams.get(key));
           if (!value) continue;
           let candidate = value;
-          for (let i = 0; i < 2; i++) {
+          for (let i = 0; i < URL_DECODE_ATTEMPTS; i++) {
             try {
               candidate = decodeURIComponent(candidate);
             } catch {
@@ -1453,7 +1454,11 @@
           const unwrappedPreferredLink = unwrapGoogleNewsUrl(preferredLink);
           const unwrappedSourceLink = unwrapGoogleNewsUrl(article?.sourceLink);
           const unwrappedLink = unwrapGoogleNewsUrl(article?.link);
-          const linkScore = link => (isApNewsUrl(link) ? LINK_PRIORITY_AP : (isGoogleCall(link) ? LINK_PRIORITY_GOOGLE : LINK_PRIORITY_OTHER));
+          const linkScore = (link) => {
+            if (isApNewsUrl(link)) return LINK_PRIORITY_AP;
+            if (isGoogleCall(link)) return LINK_PRIORITY_GOOGLE;
+            return LINK_PRIORITY_OTHER;
+          };
           const linkQueue = unique([
             unwrappedPreferredLink,
             unwrappedSourceLink,
