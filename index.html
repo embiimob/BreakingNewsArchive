@@ -335,7 +335,7 @@
     const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
     const ADDR_RE = /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/;
     const TXID_RE = /^[0-9a-fA-F]{64}$/;
-    const HEADLINE_PADDING_MAX = 14;
+    const HEADLINE_PADDING_MAX = 14; // Allow short source suffixes/prefixes (e.g., "AP News") when de-duplicating headline echoes.
 
     const S = {
       priv: null,
@@ -983,6 +983,7 @@
     }
 
     function getPreferredArticleLink(article) {
+      // Prefer links in the order they become more specific to the real AP article.
       return norm(article?.resolvedLink || article?.sourceLink || article?.link);
     }
 
@@ -1246,7 +1247,7 @@
       const article = row.feedItems[0];
       const prefix = sanitize($('messagePrefixInput').value);
       const articleLink = getPreferredArticleLink(article);
-      const description = cleanArticleDescription(article?.description || '', article?.title || '');
+      const description = norm(article?.description);
       const bits = [];
       if (prefix) bits.push(prefix);
       bits.push('AP Breaking News');
