@@ -251,7 +251,7 @@
         </div>
         <div class="field-row">
           <div class="field">
-            <label for="feedProxyInput">Feed/Article proxy template (non-Google URLs)</label>
+            <label for="feedProxyInput">Feed / article proxy template (non-Google URLs)</label>
             <input id="feedProxyInput" value="https://corsproxy.io/?{{url}}" autocomplete="off" spellcheck="false">
           </div>
           <div class="field">
@@ -565,8 +565,8 @@
 
     async function fetchFeedText(url) {
       const template = getFeedProxyTemplate();
-      const googleCall = isGoogleCall(url);
-      const targets = googleCall
+      const isGoogleUrl = isGoogleCall(url);
+      const targets = isGoogleUrl
         ? unique([buildCorsProxyUrl(url)])
         : unique([buildTemplateProxyUrl(url, template), url]);
       let lastError = new Error('Failed to fetch feed from any available source');
