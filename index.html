@@ -343,6 +343,9 @@
     const MIN_PARAGRAPH_LENGTH = 60;
     const MAX_PARAGRAPHS_FOR_FALLBACK = 8;
     const MAX_TEXT_LENGTH_VARIANCE = 40;
+    const LINK_PRIORITY_AP = 0;
+    const LINK_PRIORITY_OTHER = 1;
+    const LINK_PRIORITY_GOOGLE = 2;
 
     const S = {
       priv: null,
@@ -448,7 +451,12 @@
               break;
             }
           }
-          if (isApNewsUrl(candidate)) return candidate;
+          try {
+            const parsedCandidate = new URL(candidate);
+            if (parsedCandidate.protocol === 'http:' || parsedCandidate.protocol === 'https:') return parsedCandidate.toString();
+          } catch {
+            // continue checking other params
+          }
         }
       } catch {
         return '';
@@ -1453,10 +1461,7 @@
             article?.sourceLink,
             article?.link,
           ].map(norm).filter(Boolean)).sort((a, b) => {
-            const PRIORITY_AP = 0;
-            const PRIORITY_OTHER = 1;
-            const PRIORITY_GOOGLE = 2;
-            const score = link => (isApNewsUrl(link) ? PRIORITY_AP : (isGoogleCall(link) ? PRIORITY_GOOGLE : PRIORITY_OTHER));
+            const score = link => (isApNewsUrl(link) ? LINK_PRIORITY_AP : (isGoogleCall(link) ? LINK_PRIORITY_GOOGLE : LINK_PRIORITY_OTHER));
             return score(a) - score(b);
           });
           if (linkQueue.length && !article.resolvedLink) article.resolvedLink = linkQueue[0];
