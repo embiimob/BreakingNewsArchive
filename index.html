@@ -246,7 +246,7 @@
           </div>
           <div class="field">
             <label for="feedUrlInput">AP breaking-news feed URL</label>
-            <input id="feedUrlInput" value="https://feeds.apnews.com/apnews/breaking-news" autocomplete="off" spellcheck="false">
+            <input id="feedUrlInput" value="https://news.google.com/rss/search?q=site:apnews.com" autocomplete="off" spellcheck="false">
           </div>
         </div>
         <div class="field-row">
@@ -405,7 +405,7 @@
 
     function getApiBase() { return norm($('apiBaseInput').value) || 'https://p2fk.io'; }
     function getMempoolApi() { return norm($('mempoolInput').value) || 'https://mempool.space/testnet/api'; }
-    function getFeedUrl() { return norm($('feedUrlInput').value) || 'https://feeds.apnews.com/apnews/breaking-news'; }
+    function getFeedUrl() { return norm($('feedUrlInput').value) || 'https://news.google.com/rss/search?q=site:apnews.com'; }
     function getFeedProxyTemplate() { return norm($('feedProxyInput').value) || 'https://api.allorigins.win/get?url={{url}}'; }
     function getScanDelayMs() {
       const minutes = Math.max(1, Number($('pollMinutesInput').value || 5) || 5);
@@ -955,6 +955,11 @@
         norm(article.publishedAt),
       ].filter(Boolean).join('|');
       if (!seed) throw new Error('AP article is missing required fields (guid, link, title, or publishedAt) for stable identifier generation');
+
+      const urlMatch = norm(article.guid).match(/articles\/([^?]+)/);
+      if (urlMatch) {
+          return `CBM${urlMatch[1].substring(0, 17)}`;
+      }
       return `APID:${(await sha256hex(seed)).slice(0, 24).toUpperCase()}`;
     }
 
@@ -1027,7 +1032,7 @@
           title: norm(item.title),
           link: norm(item.link),
           guid: norm(item.guid),
-          description: norm(item.description),
+          description: item.description,
           publishedAt: norm(item.publishedAt),
           image: norm(item.image),
         };
@@ -1189,7 +1194,8 @@
       if (prefix) bits.push(prefix);
       bits.push('AP Breaking News');
       if (article?.title) bits.push(article.title);
-      if (article?.description) bits.push(article.description);
+      if (article?.fullText) bits.push(article.fullText);
+      else if (article?.description) bits.push(article.description);
       if (article?.link) bits.push(`Read more: ${article.link}`);
       bits.push(`Identifier: ${row.identifier}`);
       if (article?.publishedAt) bits.push(`Published: ${article.publishedAt}`);
@@ -1225,7 +1231,40 @@
       }
       setSyncState(identifier, { status: 'syncing', error: '' });
       try {
-        const article = row.feedItems[0];
+        let article = row.feedItems[0];
+
+        // Fetch actual article link and text
+        try {
+            if (article.link && article.link.includes('news.google.com')) {
+                // We can parse the description HTML for the a tag to get the actual AP News link
+                const box = document.createElement('div');
+                box.innerHTML = article.description || '';
+                const link = box.querySelector('a');
+                if (link && link.href) {
+                     article.link = link.href;
+                }
+
+                if (article.link && article.link.includes('apnews.com')) {
+                     const template = getFeedProxyTemplate();
+                     const target = template.includes('{{url}}') ? template.replace('{{url}}', encodeURIComponent(article.link)) : `${template}?url=${encodeURIComponent(article.link)}`;
+                     const articleRes = await fetch(target);
+                     const articleText = await articleRes.text();
+                     let articleHtml = articleText;
+                     if (/^\s*\{/.test(articleText)) {
+                        try {
+                           articleHtml = JSON.parse(articleText).contents || '';
+                        } catch(e) {}
+                     }
+                     const articleBox = document.createElement('div');
+                     articleBox.innerHTML = articleHtml;
+                     const targetNode = articleBox.querySelector('.RichTextStoryBody') || articleBox.querySelector('.Article') || articleBox.querySelector('.article-body') || articleBox.querySelector('.story') || articleBox.querySelector('main') || articleBox;
+                     article.fullText = targetNode.textContent.trim().replace(/\s+/g, ' ').substring(0, 1000);
+                }
+            }
+        } catch (e) {
+            appendLog(`Warning: Failed to fetch full article text for ${identifier}: ${e.message}`, 'warn');
+        }
+
         const outputs = await buildMsgOutputs({
           text: buildSyncText(row),
           attachments: getArticleAttachments(article),
