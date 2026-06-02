@@ -335,6 +335,7 @@
     const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
     const ADDR_RE = /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/;
     const TXID_RE = /^[0-9a-fA-F]{64}$/;
+    const HEADLINE_PADDING_MAX = 14;
 
     const S = {
       priv: null,
@@ -953,8 +954,8 @@
       const normalizedTitle = normalizeLooseText(title);
       if (!normalizedText || !normalizedTitle) return false;
       if (normalizedText === normalizedTitle) return true;
-      if (normalizedText.startsWith(normalizedTitle) && normalizedText.length - normalizedTitle.length <= 14) return true;
-      if (normalizedText.endsWith(normalizedTitle) && normalizedText.length - normalizedTitle.length <= 14) return true;
+      if (normalizedText.startsWith(normalizedTitle) && normalizedText.length - normalizedTitle.length <= HEADLINE_PADDING_MAX) return true;
+      if (normalizedText.endsWith(normalizedTitle) && normalizedText.length - normalizedTitle.length <= HEADLINE_PADDING_MAX) return true;
       return false;
     }
 
@@ -972,7 +973,7 @@
       const box = document.createElement('div');
       box.innerHTML = String(rawDescription || '');
       const links = [...box.querySelectorAll('a[href]')]
-        .map(link => norm(link.getAttribute('href') || link.href || ''))
+        .map(link => norm(link.getAttribute('href') || ''))
         .filter(Boolean);
       if (!links.length) return '';
       const directAp = links.find(link => link.includes('apnews.com'));
@@ -1291,30 +1292,32 @@
 
         // Fetch actual article link and text
         try {
-            if (!article.sourceLink && article.rawDescription) {
-                article.sourceLink = extractPreferredArticleLink(article.rawDescription);
+          if (!article.sourceLink && article.rawDescription) {
+            article.sourceLink = extractPreferredArticleLink(article.rawDescription);
+          }
+          const articleLink = getPreferredArticleLink(article);
+          if (articleLink && articleLink.includes('apnews.com')) {
+            const template = getFeedProxyTemplate();
+            article.resolvedLink = articleLink;
+            const target = template.includes('{{url}}') ? template.replace('{{url}}', encodeURIComponent(articleLink)) : `${template}?url=${encodeURIComponent(articleLink)}`;
+            const articleRes = await fetch(target);
+            const articleText = await articleRes.text();
+            let articleHtml = articleText;
+            if (/^\s*\{/.test(articleText)) {
+              try {
+                const payload = JSON.parse(articleText);
+                articleHtml = payload?.contents || '';
+              } catch (error) {
+                appendLog(`Warning: Failed to parse proxied AP payload for ${identifier}: ${error.message}`, 'warn');
+              }
             }
-            const articleLink = getPreferredArticleLink(article);
-            if (articleLink && articleLink.includes('apnews.com')) {
-                     const template = getFeedProxyTemplate();
-                     article.resolvedLink = articleLink;
-                     const target = template.includes('{{url}}') ? template.replace('{{url}}', encodeURIComponent(articleLink)) : `${template}?url=${encodeURIComponent(articleLink)}`;
-                     const articleRes = await fetch(target);
-                     const articleText = await articleRes.text();
-                     let articleHtml = articleText;
-                     if (/^\s*\{/.test(articleText)) {
-                        try {
-                           articleHtml = JSON.parse(articleText).contents || '';
-                        } catch(e) {}
-                     }
-                     const articleBox = document.createElement('div');
-                     articleBox.innerHTML = articleHtml;
-                     const targetNode = articleBox.querySelector('.RichTextStoryBody') || articleBox.querySelector('.Article') || articleBox.querySelector('.article-body') || articleBox.querySelector('.story') || articleBox.querySelector('main') || articleBox;
-                     article.fullText = targetNode.textContent.trim().replace(/\s+/g, ' ').substring(0, 1000);
-                }
-            }
+            const articleBox = document.createElement('div');
+            articleBox.innerHTML = articleHtml;
+            const targetNode = articleBox.querySelector('.RichTextStoryBody') || articleBox.querySelector('.Article') || articleBox.querySelector('.article-body') || articleBox.querySelector('.story') || articleBox.querySelector('main') || articleBox;
+            article.fullText = norm(targetNode?.textContent || '').replace(/\s+/g, ' ').substring(0, 1000);
+          }
         } catch (e) {
-            appendLog(`Warning: Failed to fetch full article text for ${identifier}: ${e.message}`, 'warn');
+          appendLog(`Warning: Failed to fetch full article text for ${identifier}: ${e.message}`, 'warn');
         }
 
         const outputs = await buildMsgOutputs({
