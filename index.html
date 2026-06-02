@@ -336,6 +336,13 @@
     const ADDR_RE = /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/;
     const TXID_RE = /^[0-9a-fA-F]{64}$/;
     const HEADLINE_PADDING_MAX = 14;
+    const STORY_TEXT_MAX = 1000;
+    const MIN_SUBSTANTIVE_CHARS = 220;
+    const MIN_SUBSTANTIVE_WORDS = 45;
+    const MIN_PUNCTUATED_WORDS = 25;
+    const MIN_PARAGRAPH_LENGTH = 60;
+    const MAX_PARAGRAPHS_FOR_FALLBACK = 8;
+    const MAX_TEXT_LENGTH_VARIANCE = 40;
 
     const S = {
       priv: null,
@@ -935,10 +942,13 @@
       return [...recipients].map(addr => ({ addr, amount: AMOUNT_PER }));
     }
 
+    function parseHtmlDoc(input) {
+      return new DOMParser().parseFromString(String(input || ''), 'text/html');
+    }
+
     function stripHtml(input) {
-      const box = document.createElement('div');
-      box.innerHTML = String(input || '');
-      return norm(box.textContent || box.innerText || '');
+      const doc = parseHtmlDoc(input);
+      return norm(doc.body?.textContent || '');
     }
 
     function normalizeLooseText(value) {
@@ -969,10 +979,84 @@
       return isDuplicateHeadline(plain, title) ? '' : plain;
     }
 
+    function escapeRegExpSpecialChars(value) {
+      return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function stripLeadingHeadline(text, title) {
+      const cleanText = norm(String(text || ''));
+      const cleanTitle = norm(String(title || ''));
+      if (!cleanText || !cleanTitle) return cleanText;
+      const normalizedText = normalizeLooseText(cleanText);
+      const normalizedTitle = normalizeLooseText(cleanTitle);
+      if (!isDuplicateHeadline(cleanText, cleanTitle) && !normalizedText.startsWith(normalizedTitle)) return cleanText;
+      const titlePrefixPattern = new RegExp(`^\\s*${escapeRegExpSpecialChars(cleanTitle)}(?:\\s*[-–—:|•]+\\s*)?`, 'i');
+      return norm(cleanText.replace(titlePrefixPattern, ''));
+    }
+
+    function isSubstantiveStoryText(value) {
+      const text = norm(String(value || '')).replace(/\s+/g, ' ');
+      if (!text) return false;
+      const words = text.split(' ').filter(Boolean);
+      return text.length >= MIN_SUBSTANTIVE_CHARS
+        || words.length >= MIN_SUBSTANTIVE_WORDS
+        || (words.length >= MIN_PUNCTUATED_WORDS && /[.!?]/.test(text));
+    }
+
+    function extractCanonicalLinkFromHtml(html) {
+      const doc = parseHtmlDoc(html);
+      const canonical = norm(doc.querySelector('link[rel="canonical"][href]')?.getAttribute('href') || '')
+        || norm(doc.querySelector('meta[property="og:url"][content]')?.getAttribute('content') || '');
+      return canonical;
+    }
+
+    function extractApLinkFromHtml(html) {
+      const doc = parseHtmlDoc(html);
+      const apAnchor = doc.querySelector('a[href*="apnews.com"], link[href*="apnews.com"], meta[content*="apnews.com"]');
+      if (!apAnchor) return '';
+      const rawUrl = apAnchor.hasAttribute('href')
+        ? norm(apAnchor.getAttribute('href') || '')
+        : norm(apAnchor.getAttribute('content') || '');
+      try {
+        const hostname = new URL(rawUrl).hostname.toLowerCase();
+        return hostname.includes('apnews.com') ? rawUrl : '';
+      } catch {
+        return '';
+      }
+    }
+
+    function extractArticleBodyText(html) {
+      const doc = parseHtmlDoc(html);
+      const articleBodySelectors = [
+        '.RichTextStoryBody',
+        'article',
+        '.Article',
+        '.article-body',
+        '.story',
+        'main',
+      ];
+      for (const selector of articleBodySelectors) {
+        const node = doc.querySelector(selector);
+        const text = norm(node?.textContent || '').replace(/\s+/g, ' ');
+        if (isSubstantiveStoryText(text)) return text.substring(0, STORY_TEXT_MAX);
+      }
+      const paragraphText = [...doc.querySelectorAll('p')]
+        .map(node => norm(node.textContent || '').replace(/\s+/g, ' '))
+        .filter(text => text.length >= MIN_PARAGRAPH_LENGTH)
+        .slice(0, MAX_PARAGRAPHS_FOR_FALLBACK)
+        .join(' ');
+      if (isSubstantiveStoryText(paragraphText)) return paragraphText.substring(0, STORY_TEXT_MAX);
+      return '';
+    }
+
+    function buildProxyUrl(url) {
+      const template = getFeedProxyTemplate();
+      return template.includes('{{url}}') ? template.replace('{{url}}', encodeURIComponent(url)) : `${template}?url=${encodeURIComponent(url)}`;
+    }
+
     function extractPreferredArticleLink(rawDescription) {
-      const box = document.createElement('div');
-      box.innerHTML = String(rawDescription || '');
-      const links = [...box.querySelectorAll('a[href]')]
+      const doc = parseHtmlDoc(rawDescription);
+      const links = [...doc.querySelectorAll('a[href]')]
         .map(link => norm(link.getAttribute('href') || ''))
         .filter(Boolean);
       if (!links.length) return '';
@@ -987,9 +1071,8 @@
     }
 
     function extractHtmlImage(input) {
-      const box = document.createElement('div');
-      box.innerHTML = String(input || '');
-      const img = box.querySelector('img[src]');
+      const doc = parseHtmlDoc(input);
+      const img = doc.querySelector('img[src]');
       return norm(img?.getAttribute('src') || '');
     }
 
@@ -1246,13 +1329,24 @@
       const article = row.feedItems[0];
       const prefix = sanitize($('messagePrefixInput').value);
       const articleLink = getPreferredArticleLink(article);
-      const description = cleanArticleDescription(article?.description || '', article?.title || '');
+      const title = norm(article?.title || '');
+      const description = cleanArticleDescription(article?.description || '', title);
+      let bodyText = stripLeadingHeadline(article?.fullText || '', title);
+      if (bodyText && description) {
+        const bodyNorm = normalizeLooseText(bodyText);
+        const descNorm = normalizeLooseText(description);
+        const closeLength = Math.abs(bodyNorm.length - descNorm.length) <= MAX_TEXT_LENGTH_VARIANCE;
+        const effectivelySame = bodyNorm === descNorm
+          || (bodyNorm.startsWith(descNorm) && closeLength)
+          || (descNorm.startsWith(bodyNorm) && closeLength);
+        if (bodyNorm && descNorm && effectivelySame) bodyText = '';
+      }
       const bits = [];
       if (prefix) bits.push(prefix);
       bits.push('AP Breaking News');
-      if (article?.title) bits.push(article.title);
-      if (article?.fullText) bits.push(article.fullText);
-      else if (description) bits.push(description);
+      if (title) bits.push(title);
+      if (bodyText) bits.push(bodyText);
+      else if (description && !isDuplicateHeadline(description, title)) bits.push(description);
       if (articleLink) bits.push(`Read more: ${articleLink}`);
       bits.push(`Identifier: ${row.identifier}`);
       if (article?.publishedAt) bits.push(`Published: ${article.publishedAt}`);
@@ -1295,26 +1389,37 @@
           if (!article.sourceLink && article.rawDescription) {
             article.sourceLink = extractPreferredArticleLink(article.rawDescription);
           }
-          const articleLink = getPreferredArticleLink(article);
-          if (articleLink && articleLink.includes('apnews.com')) {
-            const template = getFeedProxyTemplate();
-            article.resolvedLink = articleLink;
-            const target = template.includes('{{url}}') ? template.replace('{{url}}', encodeURIComponent(articleLink)) : `${template}?url=${encodeURIComponent(articleLink)}`;
-            const articleRes = await fetch(target);
+          const fetchedLinks = new Set();
+          const linkQueue = unique([getPreferredArticleLink(article), article?.sourceLink, article?.link].map(norm).filter(Boolean));
+          if (linkQueue.length && !article.resolvedLink) article.resolvedLink = linkQueue[0];
+          while (linkQueue.length && !article.fullText) {
+            const currentLink = linkQueue.shift();
+            if (!currentLink || fetchedLinks.has(currentLink)) continue;
+            fetchedLinks.add(currentLink);
+            const articleRes = await fetch(buildProxyUrl(currentLink));
+            if (!articleRes.ok) continue;
             const articleText = await articleRes.text();
             let articleHtml = articleText;
             if (/^\s*\{/.test(articleText)) {
               try {
                 const payload = JSON.parse(articleText);
-                articleHtml = payload?.contents || '';
+                articleHtml = payload?.contents || payload?.content || payload?.html || '';
               } catch (error) {
                 appendLog(`Warning: Failed to parse proxied AP payload for ${identifier}: ${error.message}`, 'warn');
               }
             }
-            const articleBox = document.createElement('div');
-            articleBox.innerHTML = articleHtml;
-            const targetNode = articleBox.querySelector('.RichTextStoryBody') || articleBox.querySelector('.Article') || articleBox.querySelector('.article-body') || articleBox.querySelector('.story') || articleBox.querySelector('main') || articleBox;
-            article.fullText = norm(targetNode?.textContent || '').replace(/\s+/g, ' ').substring(0, 1000);
+            const canonicalLink = extractCanonicalLinkFromHtml(articleHtml);
+            if (canonicalLink) {
+              article.resolvedLink = canonicalLink;
+              if (!fetchedLinks.has(canonicalLink)) {
+                if (canonicalLink.includes('apnews.com')) linkQueue.unshift(canonicalLink);
+                else linkQueue.push(canonicalLink);
+              }
+            }
+            const discoveredApLink = extractApLinkFromHtml(articleHtml);
+            if (discoveredApLink && !fetchedLinks.has(discoveredApLink)) linkQueue.unshift(discoveredApLink);
+            const fullText = extractArticleBodyText(articleHtml);
+            if (fullText) article.fullText = fullText;
           }
         } catch (e) {
           appendLog(`Warning: Failed to fetch full article text for ${identifier}: ${e.message}`, 'warn');
