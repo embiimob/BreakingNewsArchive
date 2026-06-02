@@ -1106,8 +1106,8 @@
       const links = [...doc.querySelectorAll('a[href]')]
         .map(link => norm(link.getAttribute('href') || ''))
         .filter(Boolean);
-      const directLinks = links.map(unwrapGoogleNewsUrl).filter(Boolean);
-      const candidates = unique([...directLinks, ...links]);
+      const unwrappedLinks = links.map(unwrapGoogleNewsUrl).filter(Boolean);
+      const candidates = unique([...unwrappedLinks, ...links]);
       if (!candidates.length) return '';
       const directAp = candidates.find(link => isApNewsUrl(link));
       if (directAp) return directAp;
@@ -1441,11 +1441,15 @@
             article.sourceLink = extractPreferredArticleLink(article.rawDescription);
           }
           const fetchedLinks = new Set();
+          const preferredLink = getPreferredArticleLink(article);
+          const unwrappedPreferredLink = unwrapGoogleNewsUrl(preferredLink);
+          const unwrappedSourceLink = unwrapGoogleNewsUrl(article?.sourceLink);
+          const unwrappedLink = unwrapGoogleNewsUrl(article?.link);
           const linkQueue = unique([
-            unwrapGoogleNewsUrl(getPreferredArticleLink(article)),
-            unwrapGoogleNewsUrl(article?.sourceLink),
-            unwrapGoogleNewsUrl(article?.link),
-            getPreferredArticleLink(article),
+            unwrappedPreferredLink,
+            unwrappedSourceLink,
+            unwrappedLink,
+            preferredLink,
             article?.sourceLink,
             article?.link,
           ].map(norm).filter(Boolean)).sort((a, b) => {
