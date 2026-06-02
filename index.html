@@ -251,8 +251,8 @@
         </div>
         <div class="field-row">
           <div class="field">
-            <label for="feedProxyInput">Feed proxy template</label>
-            <input id="feedProxyInput" value="https://api.allorigins.win/get?url={{url}}" autocomplete="off" spellcheck="false">
+            <label for="feedProxyInput">Feed / article proxy template (non-Google URLs)</label>
+            <input id="feedProxyInput" value="https://corsproxy.io/?key=f136e028&amp;url={{url}}" autocomplete="off" spellcheck="false">
           </div>
           <div class="field">
             <label for="pollMinutesInput">Rescan delay after a completed batch (minutes)</label>
@@ -414,7 +414,24 @@
     function getApiBase() { return norm($('apiBaseInput').value) || 'https://p2fk.io'; }
     function getMempoolApi() { return norm($('mempoolInput').value) || 'https://mempool.space/testnet/api'; }
     function getFeedUrl() { return norm($('feedUrlInput').value) || 'https://news.google.com/rss/search?q=site:apnews.com'; }
-    function getFeedProxyTemplate() { return norm($('feedProxyInput').value) || 'https://api.allorigins.win/get?url={{url}}'; }
+    function getFeedProxyTemplate() { return norm($('feedProxyInput').value) || 'https://corsproxy.io/?key=f136e028&url={{url}}'; }
+    function isGoogleCall(url) {
+      try {
+        const hostname = new URL(url).hostname.toLowerCase();
+        return hostname === 'news.google.com' || hostname.endsWith('.news.google.com');
+      } catch {
+        return false;
+      }
+    }
+    function buildCorsProxyUrl(url) {
+      return `https://corsproxy.io/?key=f136e028&url=${encodeURIComponent(url)}`;
+    }
+    function buildTemplateProxyUrl(url, template = getFeedProxyTemplate()) {
+      if (!template) return '';
+      return template.includes('{{url}}')
+        ? template.replace('{{url}}', encodeURIComponent(url))
+        : `${template}?url=${encodeURIComponent(url)}`;
+    }
     function getScanDelayMs() {
       const minutes = Math.max(1, Number($('pollMinutesInput').value || 5) || 5);
       return minutes * 60 * 1000;
@@ -548,12 +565,10 @@
 
     async function fetchFeedText(url) {
       const template = getFeedProxyTemplate();
-      const targets = unique([
-        template.includes('{{url}}') ? template.replace('{{url}}', encodeURIComponent(url)) : '',
-        url,
-        `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      ]);
+      const isGoogleUrl = isGoogleCall(url);
+      const targets = isGoogleUrl
+        ? unique([buildCorsProxyUrl(url)])
+        : unique([buildTemplateProxyUrl(url, template), url]);
       let lastError = new Error('Failed to fetch feed from any available source');
       for (const target of targets) {
         const ac = new AbortController();
@@ -1050,8 +1065,8 @@
     }
 
     function buildProxyUrl(url) {
-      const template = getFeedProxyTemplate();
-      return template.includes('{{url}}') ? template.replace('{{url}}', encodeURIComponent(url)) : `${template}?url=${encodeURIComponent(url)}`;
+      if (isGoogleCall(url)) return buildCorsProxyUrl(url);
+      return buildTemplateProxyUrl(url);
     }
 
     function extractPreferredArticleLink(rawDescription) {
