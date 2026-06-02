@@ -218,7 +218,7 @@
         <h1>APNewsArchive</h1>
         <p>Single-file local utility for scanning the AP breaking-news feed, comparing the top 10 stories against a p2fk keyword, and etching only the missing stories with SupSpace-friendly formatting.</p>
       </div>
-      <div class="mini">Open this file in a modern browser. Remote feed fetches may require a CORS-friendly proxy or serving this file over HTTP(S). Wallet operations are testnet3-only.</div>
+      <div class="mini">Open this file in a modern browser. Remote feed fetches may require a CORS-friendly proxy or serving this file over HTTP or HTTPS. Wallet operations are testnet3-only.</div>
     </div>
 
     <div class="grid">
@@ -474,6 +474,7 @@
         if (state.status === 'error') statusPills.push(`<span class="pill bad">${esc(shortText(state.error || 'Error', 50))}</span>`);
         const articleLink = getPreferredArticleLink(article);
         const articleDescription = shortText(article?.description || '', 220);
+        const articleDescriptionFallback = article?.title ? 'Feed only exposed the headline.' : 'No feed details available.';
         return `
           <tr>
             <td>
@@ -486,7 +487,7 @@
               ${articleLink ? `<div class="mini"><a href="${esc(articleLink)}" target="_blank" rel="noreferrer">Open AP story</a></div>` : ''}
             </td>
             <td>
-              <div>${esc(articleDescription || 'Feed only exposed the headline.')}</div>
+              <div>${esc(articleDescription || articleDescriptionFallback)}</div>
               ${articleLink ? `<div class="mini"><a href="${esc(articleLink)}" target="_blank" rel="noreferrer">Story link</a></div>` : ''}
               ${article?.image ? `<div class="mini">${esc(isImageUrl(article.image) ? `Image attachment: ${shortText(article.image, 96)}` : `Image link: ${shortText(article.image, 96)}`)}</div>` : '<div class="mini">No image found in feed.</div>'}
             </td>
@@ -571,7 +572,7 @@
         }
       }
       if (location.protocol === 'file:') {
-        throw new Error('Feed request failed from file:// because the browser blocked remote RSS access with CORS. Serve this HTML over HTTP(S) or use a working CORS-enabled feed proxy, then rescan.');
+        throw new Error('Feed request failed from file:// because the browser blocked remote RSS access with CORS. Serve this HTML over HTTP or HTTPS, or use a working CORS-enabled feed proxy, then rescan.');
       }
       throw lastError;
     }
