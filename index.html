@@ -242,7 +242,7 @@
         <div class="field-row">
           <div class="field">
             <label for="keywordInput">p2fk keyword</label>
-            <input id="keywordInput" value="#APBreakingNews" placeholder="#keyword" autocomplete="off" spellcheck="false">
+            <input id="keywordInput" value="#BreakingNews" placeholder="#keyword" autocomplete="off" spellcheck="false">
           </div>
           <div class="field">
             <label for="feedUrlInput">Breaking-news feed URLs (comma or newline separated)</label>
@@ -1463,7 +1463,6 @@
       }
       const bits = [];
       if (prefix) bits.push(prefix);
-      bits.push('AP Breaking News');
       if (title) bits.push(title);
       if (bodyText) bits.push(bodyText);
       else if (description && !isDuplicateHeadline(description, title)) bits.push(description);
