@@ -215,7 +215,7 @@
   <div class="wrap">
     <div class="hero">
       <div>
-        <h1>APNewsArchive</h1>
+        <h1>NewsArchive</h1>
         <p>Single-file local utility for scanning multiple independent breaking-news feeds, comparing the top 10 stories against a p2fk keyword, and etching only the missing stories with SupSpace-friendly formatting.</p>
       </div>
       <div class="mini">Open this file locally in a modern browser. Wallet operations are testnet3-only.</div>
@@ -242,7 +242,7 @@
         <div class="field-row">
           <div class="field">
             <label for="keywordInput">p2fk keyword</label>
-            <input id="keywordInput" value="#APBreakingNews" placeholder="#keyword" autocomplete="off" spellcheck="false">
+            <input id="keywordInput" value="#BreakingNews" placeholder="#keyword" autocomplete="off" spellcheck="false">
           </div>
           <div class="field">
             <label for="feedUrlInput">Breaking-news feed URLs (comma or newline separated)</label>
@@ -261,7 +261,7 @@
         </div>
         <div class="field">
           <label for="messagePrefixInput">Optional message prefix</label>
-          <textarea id="messagePrefixInput" placeholder="Optional text prepended before each etched AP story."></textarea>
+          <textarea id="messagePrefixInput" placeholder="Optional text prepended before each etched story."></textarea>
         </div>
         <div class="field-row">
           <div class="field">
@@ -293,7 +293,7 @@
             <thead>
               <tr>
                 <th>Identifier</th>
-                <th>AP story</th>
+                <th>Story</th>
                 <th>Feed details</th>
                 <th>Sup/p2fk</th>
                 <th>Status</th>
@@ -1422,7 +1422,7 @@
         buildComparisonRows();
         S.lastCompletedScanAt = Date.now();
         const missing = S.comparisonRows.filter(row => row.hasFeed && !row.hasP2fk).length;
-        setStatus('analysisStatus', `AP scan complete for #${keyword}. Loaded ${S.feedItems.length} stories and found ${missing} missing story(s) to etch.`, missing ? 'warn' : 'good');
+        setStatus('analysisStatus', `scan complete for #${keyword}. Loaded ${S.feedItems.length} stories and found ${missing} missing story(s) to etch.`, missing ? 'warn' : 'good');
         return true;
       } catch (error) {
         appendLog(`Analysis failed: ${error.message}`, 'bad');
@@ -1463,7 +1463,6 @@
       }
       const bits = [];
       if (prefix) bits.push(prefix);
-      bits.push('AP Breaking News');
       if (title) bits.push(title);
       if (bodyText) bits.push(bodyText);
       else if (description && !isDuplicateHeadline(description, title)) bits.push(description);
@@ -1497,7 +1496,7 @@
       const row = (S.comparisonRows || []).find(item => item.identifier === identifier);
       if (!row || !row.hasFeed || row.hasP2fk) return;
       if (!S.keyring) {
-        setStatus('analysisStatus', 'Unlock the wallet before etching AP stories.', 'bad');
+        setStatus('analysisStatus', 'Unlock the wallet before etching stories.', 'bad');
         return;
       }
       setSyncState(identifier, { status: 'syncing', error: '' });
@@ -1541,7 +1540,7 @@
                 const payload = JSON.parse(articleText);
                 articleHtml = payload?.contents || payload?.content || payload?.html || '';
               } catch (error) {
-                appendLog(`Warning: Failed to parse proxied AP payload for ${identifier}: ${error.message}`, 'warn');
+                appendLog(`Warning: Failed to parse proxied payload for ${identifier}: ${error.message}`, 'warn');
               }
             }
             const canonicalLink = extractCanonicalLinkFromHtml(articleHtml);
@@ -1567,7 +1566,7 @@
           extras: [],
           fromAddr: S.addr,
         });
-        appendLog(`Broadcasting AP story ${identifier} with ${outputs.length} outputs…`);
+        appendLog(`Broadcasting story ${identifier} with ${outputs.length} outputs…`);
         const txid = await broadcastTx(outputs);
         S.lastBroadcastTxid = txid;
         setSyncState(identifier, { status: 'broadcasted', txid });
@@ -1596,13 +1595,13 @@
       if (!ok) return;
       const count = queueUnmatched();
       if (!count && !hasOutstandingBroadcasts()) {
-        setStatus('analysisStatus', `No new AP stories are missing from #${S.keyword}. Waiting ${Math.round(getScanDelayMs() / 60000)} minute(s) for the next scan.`, 'good');
-        scheduleNextScan('AP batch completed.');
+        setStatus('analysisStatus', `No new stories are missing from #${S.keyword}. Waiting ${Math.round(getScanDelayMs() / 60000)} minute(s) for the next scan.`, 'good');
+        scheduleNextScan('batch completed.');
         return;
       }
       if (count) {
-        appendLog(`Queued ${count} missing AP story(s). Each story waits for full confirmation before the next etch.`, 'good');
-        setStatus('analysisStatus', `Queued ${count} AP story(s) to etch for #${S.keyword}.`, 'warn');
+        appendLog(`Queued ${count} missing story(s). Each story waits for full confirmation before the next etch.`, 'good');
+        setStatus('analysisStatus', `Queued ${count} story(s) to etch for #${S.keyword}.`, 'warn');
       }
       await processAutoSync();
     }
@@ -1610,7 +1609,7 @@
     async function processAutoSync() {
       if (!S.syncRunning || S.syncBusy) return;
       if (!S.syncQueue.length) {
-        if (!hasOutstandingBroadcasts()) scheduleNextScan('AP batch completed.');
+        if (!hasOutstandingBroadcasts()) scheduleNextScan('Abatch completed.');
         renderSummary();
         return;
       }
@@ -1618,18 +1617,18 @@
       try {
         if (!S.keyring) throw new Error('Unlock the wallet before auto archiving.');
         if (await hasPendingWalletActivity()) {
-          appendLog('Waiting for wallet balances to confirm before etching the next AP story…', 'warn');
+          appendLog('Waiting for wallet balances to confirm before etching the next story…', 'warn');
           return;
         }
         if (!(await isLastBroadcastConfirmed())) {
-          appendLog(`Waiting for tx ${S.lastBroadcastTxid} to fully confirm before etching the next AP story…`, 'warn');
+          appendLog(`Waiting for tx ${S.lastBroadcastTxid} to fully confirm before etching the next story…`, 'warn');
           return;
         }
         const nextIdentifier = S.syncQueue.shift();
         if (!nextIdentifier) return;
         await syncArticle(nextIdentifier);
         const state = getSyncState(nextIdentifier);
-        if (state.status === 'broadcasted' && S.lastBroadcastTxid) appendLog('The next AP story will only etch after this broadcast confirms.', 'warn');
+        if (state.status === 'broadcasted' && S.lastBroadcastTxid) appendLog('The next story will only etch after this broadcast confirms.', 'warn');
       } catch (error) {
         appendLog(`Auto archive error: ${error.message}`, 'bad');
       } finally {
@@ -1652,7 +1651,7 @@
         refreshConfirmationStates().catch(() => {});
         processAutoSync().catch(() => {});
       }, 60000);
-      appendLog(`Auto archive started. The first AP scan runs now and later scans only happen ${Math.round(getScanDelayMs() / 60000)} minute(s) after a full batch finishes.`, 'good');
+      appendLog(`Auto archive started. The first scan runs now and later scans only happen ${Math.round(getScanDelayMs() / 60000)} minute(s) after a full batch finishes.`, 'good');
       await runScanAndQueue();
     }
 
@@ -1694,7 +1693,7 @@
         } catch {}
       }
       renderComparison();
-      if (S.syncRunning && !S.syncQueue.length && !hasOutstandingBroadcasts()) scheduleNextScan('AP batch completed.');
+      if (S.syncRunning && !S.syncQueue.length && !hasOutstandingBroadcasts()) scheduleNextScan('batch completed.');
     }
 
     $('unlockBtn').addEventListener('click', () => unlockWallet().catch(() => {}));
