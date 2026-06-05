@@ -347,6 +347,8 @@
     const LINK_PRIORITY_AP = 0;
     const LINK_PRIORITY_OTHER = 1;
     const LINK_PRIORITY_GOOGLE = 2;
+    const MAX_VISIBLE_CONFIRMED = 5;
+    const BALANCE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
     const DEFAULT_FEED_SOURCES = [
       'https://feeds.npr.org/1001/rss.xml',
       'https://www.aljazeera.com/xml/rss/all.xml',
@@ -374,6 +376,9 @@
       lastBroadcastTxid: '',
       lastCompletedScanAt: 0,
       syncStateById: new Map(),
+      recentConfirmedIds: [],
+      lastBalanceCheckAt: 0,
+      lastPendingWalletActivity: false,
     };
 
     const $ = id => document.getElementById(id);
@@ -524,20 +529,53 @@
       return state;
     }
 
+    function rememberConfirmed(identifier) {
+      if (!identifier) return;
+      S.recentConfirmedIds = [identifier, ...S.recentConfirmedIds.filter(id => id !== identifier)].slice(0, MAX_VISIBLE_CONFIRMED);
+    }
+
+    function pruneSyncState() {
+      const keep = new Set([
+        ...(S.comparisonRows || [])
+          .filter(row => row.hasFeed && !row.hasP2fk)
+          .map(row => row.identifier),
+        ...S.syncQueue,
+        ...S.recentConfirmedIds,
+      ]);
+      for (const [identifier, state] of S.syncStateById.entries()) {
+        if (['queued', 'syncing', 'broadcasted'].includes(state.status)) keep.add(identifier);
+      }
+      [...S.syncStateById.keys()].forEach(identifier => {
+        if (!keep.has(identifier)) S.syncStateById.delete(identifier);
+      });
+    }
+
+    function getVisibleComparisonRows() {
+      const recentConfirmed = new Set(S.recentConfirmedIds || []);
+      return (S.comparisonRows || []).filter(row => {
+        const status = getSyncState(row.identifier).status;
+        if (row.hasFeed && !row.hasP2fk) return true;
+        if (['queued', 'syncing', 'broadcasted'].includes(status)) return true;
+        return status === 'confirmed' && recentConfirmed.has(row.identifier);
+      });
+    }
+
     function setSyncState(identifier, patch) {
       const next = { ...(S.syncStateById.get(identifier) || {}), ...patch };
       S.syncStateById.set(identifier, next);
+      if (next.status === 'confirmed') rememberConfirmed(identifier);
       const row = (S.comparisonRows || []).find(item => item.identifier === identifier);
       if (row) row.syncState = next;
+      pruneSyncState();
       renderComparison();
       renderSummary();
     }
 
     function renderComparison() {
       const body = $('comparisonBody');
-      const rows = S.comparisonRows || [];
+      const rows = getVisibleComparisonRows();
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="6" class="muted">No analysis yet.</td></tr>';
+        body.innerHTML = '<tr><td colspan="6" class="muted">No queued, missing, or recent confirmed stories right now.</td></tr>';
         renderSummary();
         return;
       }
@@ -1365,6 +1403,7 @@
         return bDate - aDate;
       });
       S.comparisonRows = rows;
+      pruneSyncState();
       renderComparison();
     }
 
@@ -1433,8 +1472,14 @@
 
     async function hasPendingWalletActivity() {
       if (!S.keyring) return false;
+      if (S.nextScanTimer && !S.syncQueue.length) return false;
+      const now = Date.now();
+      if (S.lastBalanceCheckAt && now - S.lastBalanceCheckAt < BALANCE_CHECK_INTERVAL_MS) return S.lastPendingWalletActivity;
       const balances = await Promise.all(S.keyring.all.map(signer => getBalance(signer.addr)));
-      return balances.some(item => item.unconfirmed > 0 || item.mempoolSpent > 0);
+      const hasPending = balances.some(item => item.unconfirmed > 0 || item.mempoolSpent > 0);
+      S.lastBalanceCheckAt = now;
+      S.lastPendingWalletActivity = hasPending;
+      return hasPending;
     }
 
     async function isLastBroadcastConfirmed() {
@@ -1647,6 +1692,8 @@
       S.syncQueue = [];
       S.syncRunning = true;
       S.nextScanTimer = null;
+      S.lastBalanceCheckAt = 0;
+      S.lastPendingWalletActivity = false;
       S.syncTimer = setInterval(() => {
         refreshConfirmationStates().catch(() => {});
         processAutoSync().catch(() => {});
@@ -1662,6 +1709,8 @@
       S.syncTimer = null;
       S.nextScanTimer = null;
       S.syncQueue = [];
+      S.lastBalanceCheckAt = 0;
+      S.lastPendingWalletActivity = false;
       appendLog('Auto archive stopped.');
       setStatus('analysisStatus', 'Auto archive stopped.', 'warn');
       renderSummary();
