@@ -928,10 +928,18 @@
       if (!S.keyring) S.keyring = kr;
       const [cA, cB] = kr.changes;
       const utxoGroups = await Promise.all(kr.all.map(async sg => {
-        const res = await fetch(`${getMempoolApi()}/address/${encodeURIComponent(sg.addr)}/utxo`);
-        if (!res.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
-        const items = await res.json();
-        return items.filter(u => u.status?.confirmed).map(u => ({ ...u, srcAddr: sg.addr, signer: sg }));
+        try {
+          const res = await fetch(`${getMempoolApi()}/address/${encodeURIComponent(sg.addr)}/utxo`);
+          if (!res.ok) {
+            console.warn(`UTXO fetch failed for ${sg.label}`);
+            return [];
+          }
+          const items = await res.json();
+          return items.filter(u => u.status?.confirmed).map(u => ({ ...u, srcAddr: sg.addr, signer: sg }));
+        } catch (err) {
+          console.warn(`UTXO fetch error for ${sg.label}: ${err.message}`);
+          return [];
+        }
       }));
       const allUtxos = utxoGroups.flat();
       if (!allUtxos.length) throw new Error('No confirmed UTXOs found');
