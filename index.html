@@ -1192,10 +1192,10 @@
       if (!source) return '';
       try {
         const parsed = new URL(source);
-        parsed.hash = '';
         const trackerParams = [
           'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
           'utm_name', 'utm_id', 'gclid', 'fbclid', 'mc_cid', 'mc_eid', 'ref', 'ref_src',
+          'at_campaign', 'at_medium',
         ];
         trackerParams.forEach(param => parsed.searchParams.delete(param));
         const sortedParams = [...parsed.searchParams.entries()]
@@ -1500,7 +1500,7 @@
     function buildSyncText(row) {
       const article = row.feedItems[0];
       const prefix = sanitize($('messagePrefixInput').value);
-      const articleLink = getPreferredArticleLink(article);
+      const articleLink = row.identifier;
       const title = norm(article?.title || '');
       const description = cleanArticleDescription(article?.description || '', title);
       let bodyText = stripLeadingHeadline(article?.fullText || '', title);
