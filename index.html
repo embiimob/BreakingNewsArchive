@@ -384,7 +384,7 @@
     const $ = id => document.getElementById(id);
     const norm = v => typeof v === 'string' ? v.trim() : '';
     const esc = t => String(t ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-    const sanitize = msg => norm(String(msg ?? '')).replace(/[<>]/g,' ');
+    const sanitize = msg => norm(String(msg ?? '')).replace(/<<([^>]+)>>/g, '##L$1R##').replace(/[<>]/g, ' ').replace(/##L(.*?)R##/g, '<<$1>>');
     const utf8len = v => new TextEncoder().encode(String(v ?? '')).length;
     const isAddr = v => ADDR_RE.test(norm(v));
     const shortAddr = v => { const t = norm(v); return t.length > 16 ? `${t.slice(0,8)}…${t.slice(-5)}` : t; };
@@ -1359,7 +1359,9 @@
         const batch = (Array.isArray(data) ? data : []).map(item => normalizeRoot(item.Root || item.root || item)).filter(Boolean);
         batch.forEach(root => {
           const parsedLinks = parseMsg(root.message || '').links || [];
-          const normalizedLinks = parsedLinks.map(normalizeIdentifierUrl).filter(Boolean);
+          const rawLinks = (root.message || '').match(/https?:\/\/[^\s<>"]+/gi) || [];
+          const combinedLinks = unique([...parsedLinks, ...rawLinks]);
+          const normalizedLinks = combinedLinks.map(normalizeIdentifierUrl).filter(Boolean);
           const legacyIdentifiers = ((root.message || '').match(/APID:[A-F0-9]{24}/gi) || []).map(id => id.toUpperCase());
           const identifiers = unique([...normalizedLinks, ...legacyIdentifiers]);
 
