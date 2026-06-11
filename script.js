@@ -1,322 +1,4 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>APNewsArchive</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #0a0f1c;
-      --panel: #101829;
-      --panel-2: #162038;
-      --border: #26334d;
-      --text: #e8eefc;
-      --muted: #9cb0d1;
-      --accent: #74b4ff;
-      --good: #2eb67d;
-      --warn: #f4b740;
-      --bad: #ff6b6b;
-      --shadow: 0 12px 32px rgba(0,0,0,.28);
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: linear-gradient(180deg, #07101f 0%, #0a0f1c 100%);
-      color: var(--text);
-    }
-    a { color: var(--accent); }
-    .wrap {
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 24px;
-    }
-    .hero {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 16px;
-      align-items: flex-start;
-      justify-content: space-between;
-      margin-bottom: 20px;
-    }
-    h1, h2, h3 { margin: 0 0 10px; }
-    p { margin: 0; color: var(--muted); }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 16px;
-    }
-    .card {
-      background: rgba(16, 24, 41, .96);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      box-shadow: var(--shadow);
-      padding: 18px;
-    }
-    .span-4 { grid-column: span 4; }
-    .span-8 { grid-column: span 8; }
-    .span-12 { grid-column: span 12; }
-    @media (max-width: 1100px) {
-      .span-4,.span-8,.span-12 { grid-column: span 12; }
-    }
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      margin-bottom: 12px;
-    }
-    .field-row {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-    @media (max-width: 720px) {
-      .field-row { grid-template-columns: 1fr; }
-    }
-    label {
-      color: var(--muted);
-      font-size: .92rem;
-    }
-    input, textarea, button { font: inherit; }
-    input, textarea {
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: #0b1424;
-      color: var(--text);
-      padding: 12px 14px;
-      outline: none;
-    }
-    textarea { min-height: 92px; resize: vertical; }
-    input:focus, textarea:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(116, 180, 255, .12);
-    }
-    .btn-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 12px;
-    }
-    button {
-      border: 0;
-      border-radius: 12px;
-      padding: 11px 15px;
-      background: #21304d;
-      color: var(--text);
-      cursor: pointer;
-    }
-    button.primary { background: var(--accent); color: #08111f; font-weight: 700; }
-    button.good { background: var(--good); color: #07130e; font-weight: 700; }
-    button.warn { background: var(--warn); color: #241300; font-weight: 700; }
-    button.bad { background: var(--bad); color: #210707; font-weight: 700; }
-    button:disabled { opacity: .55; cursor: not-allowed; }
-    .status {
-      border-radius: 12px;
-      padding: 10px 12px;
-      margin-top: 12px;
-      font-size: .93rem;
-      border: 1px solid var(--border);
-      background: #0b1424;
-      color: var(--muted);
-      white-space: pre-wrap;
-    }
-    .status.good { border-color: rgba(46,182,125,.5); color: #bff3db; }
-    .status.warn { border-color: rgba(244,183,64,.45); color: #ffe1a5; }
-    .status.bad { border-color: rgba(255,107,107,.45); color: #ffc0c0; }
-    .mini {
-      font-size: .86rem;
-      color: var(--muted);
-    }
-    .wallet-lines, .summary-grid {
-      display: grid;
-      gap: 10px;
-    }
-    .wallet-line, .summary-item {
-      background: #0b1424;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 12px;
-    }
-    .wallet-line code, .summary-item strong { display: block; }
-    code {
-      color: #d7e3ff;
-      word-break: break-all;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: .86rem;
-    }
-    .summary-grid {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-    @media (max-width: 900px) {
-      .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
-    @media (max-width: 560px) {
-      .summary-grid { grid-template-columns: 1fr; }
-    }
-    .table-wrap {
-      overflow: auto;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      background: #0b1424;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 1080px;
-    }
-    th, td {
-      padding: 12px;
-      border-bottom: 1px solid rgba(38,51,77,.7);
-      vertical-align: top;
-      text-align: left;
-      font-size: .92rem;
-    }
-    th {
-      position: sticky;
-      top: 0;
-      background: #13203a;
-      z-index: 1;
-    }
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border-radius: 999px;
-      padding: 4px 9px;
-      font-size: .78rem;
-      border: 1px solid var(--border);
-      background: rgba(116, 180, 255, .08);
-      color: var(--text);
-      margin: 0 6px 6px 0;
-    }
-    .pill.good { background: rgba(46,182,125,.15); color: #bff3db; }
-    .pill.warn { background: rgba(244,183,64,.14); color: #ffe1a5; }
-    .pill.bad { background: rgba(255,107,107,.14); color: #ffc0c0; }
-    .stack { display: flex; flex-direction: column; gap: 8px; }
-    .log {
-      background: #08101d;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      min-height: 220px;
-      max-height: 420px;
-      overflow: auto;
-      padding: 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: .82rem;
-      white-space: pre-wrap;
-    }
-    .muted { color: var(--muted); }
-    .small-btn { padding: 7px 10px; font-size: .82rem; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="hero">
-      <div>
-        <h1>NewsArchive</h1>
-        <p>Single-file local utility for scanning multiple independent breaking-news feeds, comparing the top 10 stories against a p2fk keyword, and etching only the missing stories with SupSpace-friendly formatting.</p>
-      </div>
-      <div class="mini">Open this file locally in a modern browser. Wallet operations are testnet3-only.</div>
-    </div>
 
-    <div class="grid">
-      <section class="card span-4">
-        <h2>Wallet</h2>
-        <div class="field">
-          <label for="wifInput">SupSpace WIF</label>
-          <input id="wifInput" type="password" placeholder="c... / 9... testnet3 legacy WIF" autocomplete="off" spellcheck="false">
-        </div>
-        <div class="btn-row">
-          <button id="unlockBtn" class="primary">Unlock wallet</button>
-          <button id="refreshWalletBtn">Refresh balances</button>
-          <button id="consolidateBtn" class="primary">Consolidate</button>
-          <button id="consolidateMsgBtn" class="primary">Consolidate for messaging</button>
-          <button id="clearWalletBtn" class="bad">Clear wallet</button>
-        </div>
-        <div id="walletStatus" class="status">Wallet is locked.</div>
-        <div id="walletInfo" class="wallet-lines" style="margin-top:12px"></div>
-      </section>
-
-      <section class="card span-8">
-        <h2>Archive settings</h2>
-        <div class="field-row">
-          <div class="field">
-            <label for="keywordInput">p2fk keyword</label>
-            <input id="keywordInput" value="#BreakingNews" placeholder="#keyword" autocomplete="off" spellcheck="false">
-          </div>
-          <div class="field">
-            <label for="feedUrlInput">Breaking-news feed URLs (comma or newline separated)</label>
-            <input id="feedUrlInput" value="https://feeds.npr.org/1001/rss.xml, https://www.aljazeera.com/xml/rss/all.xml, https://www.theguardian.com/world/rss, https://feeds.bbci.co.uk/news/world/rss.xml, https://rss.dw.com/rdf/rss-en-top" autocomplete="off" spellcheck="false">
-          </div>
-        </div>
-        <div class="field-row">
-          <div class="field">
-            <label for="feedProxyInput">Feed / article proxy template</label>
-            <input id="feedProxyInput" value="https://corsproxy.io/?key=f136e028&amp;url={{url}}" autocomplete="off" spellcheck="false">
-          </div>
-          <div class="field">
-            <label for="pollMinutesInput">Rescan delay after a completed batch (minutes)</label>
-            <input id="pollMinutesInput" value="5" type="number" min="1" step="1" autocomplete="off" spellcheck="false">
-          </div>
-        </div>
-        <div class="field">
-          <label for="messagePrefixInput">Optional message prefix</label>
-          <textarea id="messagePrefixInput" placeholder="Optional text prepended before each etched story."></textarea>
-        </div>
-        <div class="field-row">
-          <div class="field">
-            <label for="apiBaseInput">p2fk API</label>
-            <input id="apiBaseInput" value="https://p2fk.io" autocomplete="off" spellcheck="false">
-          </div>
-          <div class="field">
-            <label for="mempoolInput">mempool API</label>
-            <input id="mempoolInput" value="https://mempool.space/testnet/api" autocomplete="off" spellcheck="false">
-          </div>
-        </div>
-        <div class="btn-row">
-          <button id="analyzeBtn" class="primary">Scan top 10 now</button>
-          <button id="startSyncBtn" class="good">Start auto archive</button>
-          <button id="stopSyncBtn" class="warn">Stop auto archive</button>
-        </div>
-        <div id="analysisStatus" class="status">Enter a keyword, verify feed sources, then scan the top 10 stories.</div>
-      </section>
-
-      <section class="card span-12">
-        <h2>Summary</h2>
-        <div id="summaryGrid" class="summary-grid"></div>
-      </section>
-
-      <section class="card span-12">
-        <h2>Breaking news comparison</h2>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Identifier</th>
-                <th>Story</th>
-                <th>Feed details</th>
-                <th>Sup/p2fk</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="comparisonBody">
-              <tr><td colspan="6" class="muted">No analysis yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="card span-12">
-        <h2>Activity log</h2>
-        <div id="log" class="log"></div>
-      </section>
-    </div>
-  </div>
-
-  <script>
   (() => {
     'use strict';
 
@@ -728,16 +410,10 @@
       const payload = await res.json();
       const cs = payload?.chain_stats || {};
       const ms = payload?.mempool_stats || {};
-
-      const tx_count = Number(cs.tx_count||0) + Number(ms.tx_count||0);
-      const utxo_count = (Number(cs.funded_txo_count||0) - Number(cs.spent_txo_count||0)) + (Number(ms.funded_txo_count||0) - Number(ms.spent_txo_count||0));
-
       return {
         confirmed: (Number(cs.funded_txo_sum || 0) - Number(cs.spent_txo_sum || 0)) - Number(ms.spent_txo_sum || 0),
         unconfirmed: Number(ms.funded_txo_sum || 0),
         mempoolSpent: Number(ms.spent_txo_sum || 0),
-        tx_count,
-        utxo_count
       };
     }
 
@@ -896,13 +572,9 @@
     async function buildKeyring(base) {
       const main = await buildSignerEntry(base, 'main');
       const changes = [];
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < CHANGE_COUNT; i++) {
         const d = await deriveChangeKey(base, `slot-${i + 1}`);
-        const entry = await buildSignerEntry(d, `change-${i + 1}`);
-        const bal = await getBalance(entry.addr).catch(() => ({confirmed: 0, unconfirmed: 0, tx_count: 0, utxo_count: 0}));
-        entry.utxoCount = bal.utxo_count;
-        changes.push(entry);
-        if (i >= 1 && bal.tx_count === 0) break;
+        changes.push(await buildSignerEntry(d, `change-${i + 1}`));
       }
       return { main, changes, all: [main, ...changes] };
     }
@@ -938,14 +610,12 @@
       if (!S.priv) throw new Error('Wallet is locked');
       const kr = S.keyring || await buildKeyring(S.priv);
       if (!S.keyring) S.keyring = kr;
+      const [cA, cB] = kr.changes;
 
-      const utxoCountByAddr = new Map();
-      const balances = await Promise.all(kr.all.map(async sg => {
-        const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0, utxo_count: 0}));
-        utxoCountByAddr.set(sg.addr, bal.utxo_count);
-        sg.utxoCount = bal.utxo_count;
-        return { signer: sg, ...bal };
-      }));
+      const balances = await Promise.all(kr.all.map(async sg => ({
+        signer: sg,
+        ...await getBalance(sg.addr)
+      })));
 
       const totalsByAddr = balances.reduce((m, b) => m.set(b.signer.addr, b.confirmed), new Map());
       const totalConfirmed = Array.from(totalsByAddr.values()).reduce((a, b) => a + b, 0);
@@ -977,7 +647,7 @@
         }
       };
 
-      const candidates = [kr.main, ...kr.changes].sort((a, b) => (totalsByAddr.get(b.addr) || 0) - (totalsByAddr.get(a.addr) || 0));
+      const candidates = [kr.main, cA, cB].sort((a, b) => (totalsByAddr.get(b.addr) || 0) - (totalsByAddr.get(a.addr) || 0));
       let selected = null, selectedUtxos = [], selectedTotal = 0;
       let allFetchedUtxos = [];
       const fetchedAddrs = new Set();
@@ -1025,37 +695,15 @@
       const fee = estFee(selectedUtxos.length, outSats.length + 1);
       const change = selectedTotal - totalOut - fee;
       if (change < 0) throw new Error('Insufficient balance after fee');
-
-      let validChanges = kr.changes.filter(c => utxoCountByAddr.get(c.addr) < 420);
-
-      if (validChanges.length === 0) {
-        const nextIdx = kr.changes.length;
-        if (nextIdx < 200) {
-          const d = await deriveChangeKey(kr.main.pb, `slot-${nextIdx+1}`);
-          const newChange = await buildSignerEntry(d, `change-${nextIdx+1}`);
-          newChange.utxoCount = 0;
-          kr.changes.push(newChange);
-          kr.all.push(newChange);
-          validChanges.push(newChange);
-        } else {
-          throw new Error('All 200 change addresses have >= 420 UTXOs. Cannot create more change outputs.');
-        }
-      }
-
-      let changeAddr = validChanges[0].addr;
-      if (validChanges.length > 1) {
-        const lastIdx = validChanges.findIndex(c => c.addr === S.lastChangeOutputAddr);
-        if (lastIdx >= 0) {
-          changeAddr = validChanges[(lastIdx + 1) % validChanges.length].addr;
-        } else if (selected) {
-          const selIdx = validChanges.findIndex(c => c.addr === selected.addr);
-          if (selIdx >= 0) {
-            changeAddr = validChanges[(selIdx + 1) % validChanges.length].addr;
-          }
-        }
+      let changeAddr = cA.addr;
+      if (selected) {
+        if (selected.addr === cA.addr) changeAddr = cB.addr;
+        else if (selected.addr === cB.addr) changeAddr = cA.addr;
+        else changeAddr = S.lastChangeOutputAddr === cA.addr ? cB.addr : cA.addr;
+      } else {
+        changeAddr = S.lastChangeOutputAddr === cA.addr ? cB.addr : cA.addr;
       }
       S.lastChangeOutputAddr = changeAddr;
-
       const finalOuts = [...outSats];
       if (change >= DUST) finalOuts.push({ addr: changeAddr, sat: change });
       const rawHex = await buildTx(selectedUtxos, finalOuts);
@@ -1496,7 +1144,7 @@
       const entries = await Promise.all(S.keyring.all.map(async signer => ({ label: signer.label, addr: signer.addr, ...(await getBalance(signer.addr)) })));
       renderWalletInfo(entries);
       const totalConfirmed = entries.reduce((sum, item) => sum + item.confirmed, 0);
-      setStatus('walletStatus', `Wallet unlocked as ${S.addr}. Confirmed available (main + ${S.keyring?.changes?.length || 0} change addresses): ${fmtTez(totalConfirmed)}.`, 'good');
+      setStatus('walletStatus', `Wallet unlocked as ${S.addr}. Confirmed available across main + change addresses: ${fmtTez(totalConfirmed)}.`, 'good');
     }
 
     async function unlockWallet() {
@@ -1827,8 +1475,6 @@
 
     $('unlockBtn').addEventListener('click', () => unlockWallet().catch(() => {}));
     $('refreshWalletBtn').addEventListener('click', () => refreshWalletBalances().catch(err => setStatus('walletStatus', err.message || 'Balance refresh failed.', 'bad')));
-    $('consolidateBtn').addEventListener('click', () => { if (window.consolidateChange) window.consolidateChange(); });
-    $('consolidateMsgBtn').addEventListener('click', () => { if (window.consolidateForMessaging) window.consolidateForMessaging(); });
     $('clearWalletBtn').addEventListener('click', clearWallet);
     $('analyzeBtn').addEventListener('click', () => analyze().catch(() => {}));
     $('startSyncBtn').addEventListener('click', () => startAutoSync().catch(err => {
@@ -1842,113 +1488,6 @@
     renderSummary();
     appendLog('APNewsArchive ready.');
 
-async function consolidateForMessagingFunds() {
-  if(!S.priv) throw new Error('Unlock wallet first');
-  const kr=S.keyring||await buildKeyring(S.priv);
-  if(!S.keyring) S.keyring=kr;
-
-  const allUtxos = [];
-  const validChanges = [];
-
-  await Promise.all(kr.all.map(async sg => {
-    const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0, utxo_count: 0}));
-    if (kr.changes.includes(sg)) {
-      sg.utxoCount = bal.utxo_count;
-      if (sg.utxoCount < 420) {
-        validChanges.push(sg);
-      }
-    }
-    if (bal.confirmed <= 0) return;
-    try {
-      const r=await fetch(`${getMempoolApi()}/address/${encodeURIComponent(sg.addr)}/utxo`);
-      if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
-      const j=await r.json();
-      const utxos = j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
-      allUtxos.push(...utxos);
-    } catch(e) {}
-  }));
-
-  if(!allUtxos.length) throw new Error('No confirmed funds to consolidate');
-
-  if (validChanges.length === 0) {
-     const nextIdx = kr.changes.length;
-     if (nextIdx < 200) {
-        const d = await deriveChangeKey(kr.main.pb, `slot-${nextIdx+1}`);
-        const newChange = await buildSignerEntry(d, `change-${nextIdx+1}`);
-        newChange.utxoCount = 0;
-        kr.changes.push(newChange);
-        kr.all.push(newChange);
-        validChanges.push(newChange);
-     } else {
-        throw new Error('No valid change addresses to consolidate to');
-     }
-  }
-
-  validChanges.sort((a,b) => a.utxoCount - b.utxoCount);
-  const targetChange = validChanges[0];
-
-  let feeRate=FEE_DEFAULT;
-  try{const fr=await fetch(`${getMempoolApi()}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),FEE_MIN);}catch{}
-  const fee=Math.ceil((10+148*allUtxos.length+34)*feeRate);
-  const total=allUtxos.reduce((s,u)=>s+Number(u.value||0),0);
-  const send=total-fee;
-  if(send<DUST) throw new Error(`Consolidation output too small after fee (${send} sat)`);
-
-  const rawHex=await buildTx(allUtxos,[{addr:targetChange.addr,sat:send}]);
-  const res=await fetch(`${getMempoolApi()}/tx`,{method:'POST',headers:{'Content-Type':'text/plain'},body:rawHex});
-  if(!res.ok) throw new Error(`Consolidation broadcast failed: ${await res.text()}`);
-  return(await res.text()).trim();
-}
-
-window.consolidateForMessaging=async function(){
-  appendLog('Consolidating for messaging…', 'info');
-  try{
-    const txid=await consolidateForMessagingFunds();
-    appendLog(`Consolidated to change address. txid: ${txid}`, 'good');
-    refreshWalletBalances();
-  }catch(e){appendLog(e.message||'Consolidation failed', 'danger');}
-};
-
-async function consolidateChangeFunds(){
-  if(!S.priv) throw new Error('Unlock wallet first');
-  const kr=S.keyring||await buildKeyring(S.priv);
-  if(!S.keyring) S.keyring=kr;
-  const changeSigners=(kr.changes||[]).filter(Boolean);
-  if(!changeSigners.length) throw new Error('Change keyring unavailable');
-  const utxoGroups=await Promise.all(changeSigners.map(async sg=>{
-    const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0}));
-    if (bal.confirmed <= 0) return [];
-    try {
-      const r=await fetch(`${getMempoolApi()}/address/${encodeURIComponent(sg.addr)}/utxo`);
-      if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
-      const j=await r.json();
-      return j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
-    } catch(e) {
-      return [];
-    }
-  }));
-  const utxos=utxoGroups.flat();
-  if(!utxos.length) throw new Error('No confirmed change funds to consolidate');
-  let feeRate=FEE_DEFAULT;
-  try{const fr=await fetch(`${getMempoolApi()}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),FEE_MIN);}catch{}
-  const fee=Math.ceil((10+148*utxos.length+34)*feeRate);
-  const total=utxos.reduce((s,u)=>s+Number(u.value||0),0);
-  const send=total-fee;
-  if(send<DUST) throw new Error(`Consolidation output too small after fee (${send} sat)`);
-  const rawHex=await buildTx(utxos,[{addr:kr.main.addr,sat:send}]);
-  const res=await fetch(`${getMempoolApi()}/tx`,{method:'POST',headers:{'Content-Type':'text/plain'},body:rawHex});
-  if(!res.ok) throw new Error(`Consolidation broadcast failed: ${await res.text()}`);
-  return(await res.text()).trim();
-}
-
-window.consolidateChange=async function(){
-  appendLog('Consolidating change funds…', 'info');
-  try{
-    const txid=await consolidateChangeFunds();
-    appendLog(`Consolidated to main address. txid: ${txid}`, 'good');
-    refreshWalletBalances();
-  }catch(e){appendLog(e.message||'Consolidation failed', 'danger');}
-};
     window.APNewsArchiveApp = {
       state: S,
       analyze,
@@ -1962,6 +1501,3 @@ window.consolidateChange=async function(){
       loadFeedItems,
     };
   })();
-  </script>
-</body>
-</html>

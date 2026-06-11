@@ -1,0 +1,8 @@
+window.consolidateChange=async function(){
+  walletMsg('Consolidating change funds…','info');
+  try{
+    const txid=await consolidateChangeFunds();
+    walletMsg(`Consolidated to main address. txid: ${txid}`,'good');
+    refreshBalance();
+  }catch(e){walletMsg(e.message||'Consolidation failed','danger');}
+};
