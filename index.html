@@ -228,6 +228,10 @@
           <label for="wifInput">SupSpace WIF</label>
           <input id="wifInput" type="password" placeholder="c... / 9... testnet3 legacy WIF" autocomplete="off" spellcheck="false">
         </div>
+        <div class="field">
+          <label for="feeRateInput">Min fee rate (sat/vbyte)</label>
+          <input id="feeRateInput" type="number" min="1" step="1" value="2" style="max-width:120px" autocomplete="off">
+        </div>
         <div class="btn-row">
           <button id="unlockBtn" class="primary">Unlock wallet</button>
           <button id="refreshWalletBtn">Refresh balances</button>
@@ -934,6 +938,10 @@
       }
       return b2h(serializeTx(inputs, finalOuts));
     }
+    function getUserFeeRate() {
+      const v = parseInt(norm($('feeRateInput')?.value), 10);
+      return Number.isFinite(v) && v >= FEE_MIN ? v : FEE_MIN;
+    }
     async function broadcastTx(outputs) {
       if (!S.priv) throw new Error('Wallet is locked');
       const kr = S.keyring || await buildKeyring(S.priv);
@@ -955,7 +963,7 @@
       try {
         const fr = await fetch(`${getMempoolApi()}/v1/fees/recommended`);
         const fp = await fr.json();
-        feeRate = Math.max(Number(fp?.halfHourFee || FEE_DEFAULT), FEE_MIN);
+        feeRate = Math.max(Number(fp?.halfHourFee || FEE_DEFAULT), getUserFeeRate());
       } catch {}
 
       const estFee = (inputs, outputsCount) => Math.ceil((10 + 148 * inputs + 34 * outputsCount) * feeRate);
@@ -1699,6 +1707,7 @@
       } catch (error) {
         appendLog(`Etch failed for ${identifier}: ${error.message}`, 'bad');
         setSyncState(identifier, { status: 'error', error: error.message || 'Etch failed' });
+        if (/insufficient funds|insufficient balance|no confirmed funds/i.test(error.message)) throw error;
       }
     }
 
@@ -1739,6 +1748,7 @@
         return;
       }
       S.syncBusy = true;
+      let nextIdentifier;
       try {
         if (!S.keyring) throw new Error('Unlock the wallet before auto archiving.');
         if (await hasPendingWalletActivity()) {
@@ -1749,13 +1759,32 @@
           appendLog(`Waiting for tx ${S.lastBroadcastTxid} to fully confirm before etching the next story…`, 'warn');
           return;
         }
-        const nextIdentifier = S.syncQueue.shift();
+        nextIdentifier = S.syncQueue.shift();
         if (!nextIdentifier) return;
         await syncArticle(nextIdentifier);
         const state = getSyncState(nextIdentifier);
         if (state.status === 'broadcasted' && S.lastBroadcastTxid) appendLog('The next story will only etch after this broadcast confirms.', 'warn');
       } catch (error) {
-        appendLog(`Auto archive error: ${error.message}`, 'bad');
+        if (/insufficient funds|insufficient balance|no confirmed funds/i.test(error.message)) {
+          if (nextIdentifier) {
+            S.syncQueue.unshift(nextIdentifier);
+            setSyncState(nextIdentifier, { status: 'queued', queueRank: 0 });
+          }
+          // Only pause the timer when all addresses have confirmed and there are
+          // genuinely no funds. If any address still has pending unconfirmed activity,
+          // just wait for the next tick instead of stopping auto-archive entirely.
+          const hasPending = await hasPendingWalletActivity().catch(() => false);
+          if (hasPending) {
+            appendLog(`Insufficient confirmed funds; a change address is still pending confirmation. Will retry on next sync cycle.`, 'warn');
+          } else {
+            S.syncRunning = false;
+            if (S.syncTimer) { clearInterval(S.syncTimer); S.syncTimer = null; }
+            appendLog(`Auto archive paused: ${error.message}. Fund your wallet and restart auto archive.`, 'bad');
+            setStatus('analysisStatus', 'Auto archive paused: insufficient funds. Fund your wallet and restart.', 'bad');
+          }
+        } else {
+          appendLog(`Auto archive error: ${error.message}`, 'bad');
+        }
       } finally {
         S.syncBusy = false;
         renderSummary();
@@ -1888,7 +1917,7 @@ async function consolidateForMessagingFunds() {
   const targetChange = validChanges[0];
 
   let feeRate=FEE_DEFAULT;
-  try{const fr=await fetch(`${getMempoolApi()}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),FEE_MIN);}catch{}
+  try{const fr=await fetch(`${getMempoolApi()}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),getUserFeeRate());}catch{}
   const fee=Math.ceil((10+148*allUtxos.length+34)*feeRate);
   const total=allUtxos.reduce((s,u)=>s+Number(u.value||0),0);
   const send=total-fee;
@@ -1930,7 +1959,7 @@ async function consolidateChangeFunds(){
   const utxos=utxoGroups.flat();
   if(!utxos.length) throw new Error('No confirmed change funds to consolidate');
   let feeRate=FEE_DEFAULT;
-  try{const fr=await fetch(`${getMempoolApi()}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),FEE_MIN);}catch{}
+  try{const fr=await fetch(`${getMempoolApi()}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),getUserFeeRate());}catch{}
   const fee=Math.ceil((10+148*utxos.length+34)*feeRate);
   const total=utxos.reduce((s,u)=>s+Number(u.value||0),0);
   const send=total-fee;
