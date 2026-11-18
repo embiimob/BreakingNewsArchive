@@ -341,6 +341,16 @@
     const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
     const ADDR_RE = /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/;
     const TXID_RE = /^[0-9a-fA-F]{64}$/;
+    const MEMPOOL_INTERVAL = 10_000;
+    const MEMPOOL_BURST = 10;
+    const MEMPOOL_FALLBACKS = [
+      ['va1', [201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214]],
+      ['sv1', [201, 202, 203, 205, 206]],
+      ['hnl', [201, 202, 203, 204]],
+      ['fra', [201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214]],
+      ['tk7', [201, 202, 203, 204, 205, 206]],
+      ['sg1', [201, 202, 203, 204]],
+    ].flatMap(([region, nodes]) => nodes.map(node => `https://node${node}.${region}.mempool.space/testnet/api`));
     const HEADLINE_PADDING_MAX = 14;
     const STORY_TEXT_MAX = 1000;
     const MIN_SUBSTANTIVE_CHARS = 220;
@@ -438,7 +448,7 @@
     }
 
     function getApiBase() { return norm($('apiBaseInput').value) || 'https://p2fk.io'; }
-    function getMempoolApi() { return norm($('mempoolInput').value) || 'https://mempool.space/testnet/api'; }
+    function getMempoolApi() { return (norm($('mempoolInput').value) || 'https://mempool.space/testnet/api').replace(/\/+$/, ''); }
     function parseFeedUrlList(value) {
       return unique(String(value || '').split(/[\n,]/).map(norm).filter(Boolean));
     }
@@ -665,6 +675,114 @@
       }
     }
 
+    let mempoolPrimary = '';
+    let mempoolPreferred = '';
+    let mempoolStarts = 0;
+    let mempoolLastStart = -Infinity;
+    let mempoolBackoffUntil = 0;
+    let mempoolQueue = Promise.resolve();
+
+    function queueMempoolAttempt(start) {
+      const ready = mempoolQueue.then(async () => {
+        for (;;) {
+          const now = performance.now();
+          if (now - mempoolLastStart >= MEMPOOL_INTERVAL) mempoolStarts = 0;
+          const nextStart = Math.max(mempoolBackoffUntil,
+            mempoolStarts === MEMPOOL_BURST ? mempoolLastStart + MEMPOOL_INTERVAL : 0);
+          if (now >= nextStart) {
+            mempoolStarts++;
+            mempoolLastStart = now;
+            return { result: start() };
+          }
+          await new Promise(resolve => setTimeout(resolve, Math.min(nextStart - now, 2_147_483_647)));
+        }
+      });
+      mempoolQueue = ready.then(() => {}, () => {});
+      return ready.then(({ result }) => result);
+    }
+
+    function backOffMempool(retryAfter) {
+      const delay = /^\d+$/.test(retryAfter || '') ? Number(retryAfter) * 1000
+        : Date.parse(retryAfter || '') - Date.now();
+      const wait = Number.isFinite(delay) ? Math.max(MEMPOOL_INTERVAL, delay) : MEMPOOL_INTERVAL;
+      mempoolBackoffUntil = Math.max(mempoolBackoffUntil, performance.now() + wait);
+    }
+
+    async function tryMempool(url, options) {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), MEMPOOL_INTERVAL);
+      try {
+        const res = await fetch(url, { ...options, signal: ac.signal, cache: 'no-store', redirect: 'error' });
+        if (res.status === 429) backOffMempool(res.headers.get('Retry-After'));
+        if (res.status === 429 || res.status === 408 || res.status >= 500) {
+          if (res.body) void res.body.cancel().catch(() => ac.abort());
+          return { status: res.status, ok: false, text: '' };
+        }
+        return { status: res.status, ok: res.ok, text: await res.text() };
+      } catch (error) {
+        if (ac.signal.aborted) throw new Error(`Timed out after 10 seconds: ${url}`);
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function mempoolRequest(path, options = {}) {
+      const primary = getMempoolApi();
+      if (mempoolPrimary !== primary) {
+        mempoolPrimary = primary;
+        mempoolPreferred = primary;
+      }
+      const endpoints = unique([primary, ...MEMPOOL_FALLBACKS]);
+      let endpoint, lastError;
+      const start = () => {
+        if (endpoint === undefined) endpoint = endpoints.indexOf(mempoolPreferred);
+        if (endpoint < 0) endpoint = 0;
+        return tryMempool(`${endpoints[endpoint]}${path}`, options);
+      };
+      for (let tried = 0; tried < endpoints.length; tried++) {
+        let res;
+        try {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            res = undefined;
+            res = await queueMempoolAttempt(start);
+            if (res.status !== 429) break;
+          }
+        } catch (error) {
+          lastError = error;
+        }
+        if (res?.ok) return res.text;
+        if (res) {
+          lastError = new Error(`Mempool HTTP ${res.status} for ${path}${res.text ? `: ${res.text.trim()}` : ''}`);
+          if (res.status !== 408 && res.status < 500) throw lastError;
+        }
+        const next = (endpoint + 1) % endpoints.length;
+        if (mempoolPrimary === primary && mempoolPreferred === endpoints[endpoint]) mempoolPreferred = endpoints[next];
+        endpoint = next;
+      }
+      throw new Error(`All Mempool Testnet3 endpoints failed for ${path}: ${lastError.message}`, { cause: lastError });
+    }
+
+    async function mempoolJson(path) {
+      return JSON.parse(await mempoolRequest(path));
+    }
+
+    async function broadcastMempoolTx(rawHex) {
+      try {
+        const txid = (await mempoolRequest('/tx', {
+          method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: rawHex,
+        })).trim();
+        if (!TXID_RE.test(txid)) throw new Error('Invalid Mempool broadcast response');
+        return txid;
+      } catch (error) {
+        // A timed-out POST may have been accepted before its response was lost.
+        if (/^Mempool HTTP 4\d\d for \/tx:.*(?:txn-already-in-mempool|txn-already-known|Transaction already in block chain)/i.test(error.message)) {
+          return b2h((await sha256(await sha256(h2b(rawHex)))).reverse());
+        }
+        throw error;
+      }
+    }
+
     async function fetchFeedText(url) {
       const template = getFeedProxyTemplate();
       const targets = unique([buildTemplateProxyUrl(url, template), buildCorsProxyUrl(url), url]);
@@ -727,9 +845,7 @@
     }
 
     async function getBalance(addr) {
-      const res = await fetch(`${getMempoolApi()}/address/${encodeURIComponent(addr)}`);
-      if (!res.ok) throw new Error(`Balance lookup failed ${res.status}`);
-      const payload = await res.json();
+      const payload = await mempoolJson(`/address/${encodeURIComponent(addr)}`);
       const cs = payload?.chain_stats || {};
       const ms = payload?.mempool_stats || {};
 
@@ -903,7 +1019,7 @@
       for (let i = 0; i < 200; i++) {
         const d = await deriveChangeKey(base, `slot-${i + 1}`);
         const entry = await buildSignerEntry(d, `change-${i + 1}`);
-        const bal = await getBalance(entry.addr).catch(() => ({confirmed: 0, unconfirmed: 0, tx_count: 0, utxo_count: 0}));
+        const bal = await getBalance(entry.addr);
         entry.utxoCount = bal.utxo_count;
         changes.push(entry);
         if (i >= 1 && bal.tx_count === 0) break;
@@ -949,7 +1065,7 @@
 
       const utxoCountByAddr = new Map();
       const balances = await Promise.all(kr.all.map(async sg => {
-        const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0, utxo_count: 0}));
+        const bal = await getBalance(sg.addr);
         utxoCountByAddr.set(sg.addr, bal.utxo_count);
         sg.utxoCount = bal.utxo_count;
         return { signer: sg, ...bal };
@@ -961,26 +1077,24 @@
 
       let feeRate = FEE_DEFAULT;
       try {
-        const fr = await fetch(`${getMempoolApi()}/v1/fees/recommended`);
-        const fp = await fr.json();
+        const fp = await mempoolJson('/v1/fees/recommended');
         feeRate = Math.max(Number(fp?.halfHourFee || FEE_DEFAULT), getUserFeeRate());
-      } catch {}
+      } catch (error) {
+        appendLog(`Fee estimate unavailable; using default: ${error.message}`, 'warn');
+      }
 
       const estFee = (inputs, outputsCount) => Math.ceil((10 + 148 * inputs + 34 * outputsCount) * feeRate);
       const outSats = outputs.map(o => ({ addr: o.addr, sat: Math.round(o.amount * 1e8) }));
       const totalOut = outSats.reduce((s, o) => s + o.sat, 0);
 
+      let utxoError;
       const fetchUtxos = async (sg) => {
         try {
-          const res = await fetch(`${getMempoolApi()}/address/${encodeURIComponent(sg.addr)}/utxo`);
-          if (!res.ok) {
-            console.warn(`UTXO fetch failed for ${sg.label}`);
-            return [];
-          }
-          const items = await res.json();
+          const items = await mempoolJson(`/address/${encodeURIComponent(sg.addr)}/utxo`);
           return items.filter(u => u.status?.confirmed).map(u => ({ ...u, srcAddr: sg.addr, signer: sg }));
         } catch (err) {
-          console.warn(`UTXO fetch error for ${sg.label}: ${err.message}`);
+          utxoError = err;
+          appendLog(`UTXO fetch error for ${sg.label}: ${err.message}`, 'warn');
           return [];
         }
       };
@@ -1029,6 +1143,7 @@
           }
         }
       }
+      if (!selectedUtxos.length && utxoError) throw new Error(`Could not fetch all UTXOs: ${utxoError.message}`, { cause: utxoError });
       if (!selectedUtxos.length) throw new Error('Insufficient funds across main and change addresses');
       const fee = estFee(selectedUtxos.length, outSats.length + 1);
       const change = selectedTotal - totalOut - fee;
@@ -1067,9 +1182,7 @@
       const finalOuts = [...outSats];
       if (change >= DUST) finalOuts.push({ addr: changeAddr, sat: change });
       const rawHex = await buildTx(selectedUtxos, finalOuts);
-      const res = await fetch(`${getMempoolApi()}/tx`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: rawHex });
-      if (!res.ok) throw new Error(`Broadcast failed: ${await res.text()}`);
-      return (await res.text()).trim();
+      return broadcastMempoolTx(rawHex);
     }
 
     function randDelim() { const b = new Uint8Array(1), lim = Math.floor(256 / DELIMITERS.length) * DELIMITERS.length; let v = 0; do { crypto.getRandomValues(b); v = b[0]; } while (v >= lim); return DELIMITERS[v % DELIMITERS.length]; }
@@ -1573,9 +1686,7 @@
 
     async function isLastBroadcastConfirmed() {
       if (!S.lastBroadcastTxid) return true;
-      const res = await fetch(`${getMempoolApi()}/tx/${encodeURIComponent(S.lastBroadcastTxid)}/status`);
-      if (!res.ok) return false;
-      const payload = await res.json();
+      const payload = await mempoolJson(`/tx/${encodeURIComponent(S.lastBroadcastTxid)}/status`);
       return Boolean(payload?.confirmed);
     }
 
@@ -1832,9 +1943,7 @@
         const state = getSyncState(row.identifier);
         if (!state.txid) continue;
         try {
-          const res = await fetch(`${getMempoolApi()}/tx/${encodeURIComponent(state.txid)}/status`);
-          if (!res.ok) continue;
-          const payload = await res.json();
+          const payload = await mempoolJson(`/tx/${encodeURIComponent(state.txid)}/status`);
           if (payload?.confirmed) {
             setSyncState(row.identifier, { status: 'confirmed' });
             row.hasP2fk = true;
@@ -1848,7 +1957,9 @@
             });
             appendLog(`Confirmed sync tx ${state.txid} for ${row.identifier}.`, 'good');
           }
-        } catch {}
+        } catch (error) {
+          appendLog(`Confirmation lookup failed for ${state.txid}: ${error.message}`, 'warn');
+        }
       }
       renderComparison();
       if (S.syncRunning && !S.syncQueue.length && !hasOutstandingBroadcasts()) scheduleNextScan('batch completed.');
@@ -1880,7 +1991,7 @@ async function consolidateForMessagingFunds() {
   const validChanges = [];
 
   await Promise.all(kr.all.map(async sg => {
-    const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0, utxo_count: 0}));
+    const bal = await getBalance(sg.addr);
     if (kr.changes.includes(sg)) {
       sg.utxoCount = bal.utxo_count;
       if (sg.utxoCount < 420) {
@@ -1888,13 +1999,9 @@ async function consolidateForMessagingFunds() {
       }
     }
     if (bal.confirmed <= 0) return;
-    try {
-      const r=await fetch(`${getMempoolApi()}/address/${encodeURIComponent(sg.addr)}/utxo`);
-      if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
-      const j=await r.json();
-      const utxos = j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
-      allUtxos.push(...utxos);
-    } catch(e) {}
+    const j=await mempoolJson(`/address/${encodeURIComponent(sg.addr)}/utxo`);
+    const utxos = j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
+    allUtxos.push(...utxos);
   }));
 
   if(!allUtxos.length) throw new Error('No confirmed funds to consolidate');
@@ -1917,16 +2024,14 @@ async function consolidateForMessagingFunds() {
   const targetChange = validChanges[0];
 
   let feeRate=FEE_DEFAULT;
-  try{const fr=await fetch(`${getMempoolApi()}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),getUserFeeRate());}catch{}
+  try{const fp=await mempoolJson('/v1/fees/recommended');feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),getUserFeeRate());}catch(e){appendLog(`Fee estimate unavailable; using default: ${e.message}`, 'warn');}
   const fee=Math.ceil((10+148*allUtxos.length+34)*feeRate);
   const total=allUtxos.reduce((s,u)=>s+Number(u.value||0),0);
   const send=total-fee;
   if(send<DUST) throw new Error(`Consolidation output too small after fee (${send} sat)`);
 
   const rawHex=await buildTx(allUtxos,[{addr:targetChange.addr,sat:send}]);
-  const res=await fetch(`${getMempoolApi()}/tx`,{method:'POST',headers:{'Content-Type':'text/plain'},body:rawHex});
-  if(!res.ok) throw new Error(`Consolidation broadcast failed: ${await res.text()}`);
-  return(await res.text()).trim();
+  return broadcastMempoolTx(rawHex);
 }
 
 window.consolidateForMessaging=async function(){
@@ -1945,29 +2050,21 @@ async function consolidateChangeFunds(){
   const changeSigners=(kr.changes||[]).filter(Boolean);
   if(!changeSigners.length) throw new Error('Change keyring unavailable');
   const utxoGroups=await Promise.all(changeSigners.map(async sg=>{
-    const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0}));
+    const bal = await getBalance(sg.addr);
     if (bal.confirmed <= 0) return [];
-    try {
-      const r=await fetch(`${getMempoolApi()}/address/${encodeURIComponent(sg.addr)}/utxo`);
-      if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
-      const j=await r.json();
-      return j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
-    } catch(e) {
-      return [];
-    }
+    const j=await mempoolJson(`/address/${encodeURIComponent(sg.addr)}/utxo`);
+    return j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
   }));
   const utxos=utxoGroups.flat();
   if(!utxos.length) throw new Error('No confirmed change funds to consolidate');
   let feeRate=FEE_DEFAULT;
-  try{const fr=await fetch(`${getMempoolApi()}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),getUserFeeRate());}catch{}
+  try{const fp=await mempoolJson('/v1/fees/recommended');feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),getUserFeeRate());}catch(e){appendLog(`Fee estimate unavailable; using default: ${e.message}`, 'warn');}
   const fee=Math.ceil((10+148*utxos.length+34)*feeRate);
   const total=utxos.reduce((s,u)=>s+Number(u.value||0),0);
   const send=total-fee;
   if(send<DUST) throw new Error(`Consolidation output too small after fee (${send} sat)`);
   const rawHex=await buildTx(utxos,[{addr:kr.main.addr,sat:send}]);
-  const res=await fetch(`${getMempoolApi()}/tx`,{method:'POST',headers:{'Content-Type':'text/plain'},body:rawHex});
-  if(!res.ok) throw new Error(`Consolidation broadcast failed: ${await res.text()}`);
-  return(await res.text()).trim();
+  return broadcastMempoolTx(rawHex);
 }
 
 window.consolidateChange=async function(){
